@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-sql
+  namespace: tcc
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS clients (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(150) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    INSERT INTO clients (name, email) VALUES
+    ('Client 1', 'client1@example.com'),
+    ('Client 2', 'client2@example.com'),
+    ('Client 3', 'client3@example.com'),
+    ('Client 4', 'client4@example.com'),
+    ('Client 5', 'client5@example.com'),
+    ('Client 6', 'client6@example.com'),
+    ('Client 7', 'client7@example.com'),
+    ('Client 8', 'client8@example.com'),
+    ('Client 9', 'client9@example.com'),
+    ('Client 10', 'client10@example.com');
+
+    -- Generate more rows if needed
+    DELIMITER $$
+    CREATE PROCEDURE insert_clients()
+    BEGIN
+        DECLARE i INT DEFAULT 11;
+        WHILE i <= 100 DO
+            INSERT INTO clients (name, email) VALUES (CONCAT('Client ', i), CONCAT('client', i, '@example.com'));
+            SET i = i + 1;
+        END WHILE;
+    END$$
+    DELIMITER ;
+
+    CALL insert_clients();
+    DROP PROCEDURE insert_clients();
