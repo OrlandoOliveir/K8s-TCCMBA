@@ -65,16 +65,16 @@ main() {
   start_k6
   sleep 10
 
-  echo "Simulating failure: stopping docker-compose services..."
+  echo "Simulating failure: stopping app container only..."
   pushd "$ROOT/../1_cenario_docker" >/dev/null
-  docker compose down
+  docker compose stop app
   popd >/dev/null
 
   failure_ns=$(date +%s%N)
 
-  echo "Restarting docker-compose services..."
+  echo "Starting app container..."
   pushd "$ROOT/../1_cenario_docker" >/dev/null
-  docker compose up -d
+  docker compose start app
   popd >/dev/null
 
   echo "Waiting for service recovery..."
@@ -102,11 +102,6 @@ main() {
   echo "recovery_timestamp_ns=${recovery_ns:-}" >> "$FAULT_FILE"
 
   kill_monitor
-
-  echo "Restarting docker-compose services..."
-  pushd "$ROOT/../1_cenario_docker" >/dev/null
-  docker compose up -d
-  popd >/dev/null
 
   echo "Fault recovery test complete. Results saved to $FAULT_FILE"
 }
