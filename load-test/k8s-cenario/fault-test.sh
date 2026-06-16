@@ -11,8 +11,11 @@ if [[ -z "$KIND_CLUSTER" ]]; then
   exit 1
 fi
 
+_KUBECONFIG_TMP=""
 if [[ -z "${KUBECONFIG:-}" ]]; then
-  KUBECONFIG=$(kind get kubeconfig --name "$KIND_CLUSTER")
+  _KUBECONFIG_TMP=$(mktemp /tmp/kind-kubeconfig-XXXXXX.yaml)
+  kind get kubeconfig --name "$KIND_CLUSTER" > "$_KUBECONFIG_TMP"
+  KUBECONFIG="$_KUBECONFIG_TMP"
 fi
 export KUBECONFIG
 
@@ -83,7 +86,7 @@ PY
   return 0
 }
 
-trap 'kill_monitor' EXIT
+trap 'kill_monitor; [[ -n "${_KUBECONFIG_TMP:-}" ]] && rm -f "$_KUBECONFIG_TMP"' EXIT
 
 start_monitor() {
   echo "timestamp_ns,http_status" > "$MONITOR_LOG"

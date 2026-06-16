@@ -1,4 +1,0 @@
-recovery_seconds=0.928899
-downtime_milliseconds=928
-failure_timestamp_ns=1781576486096325105
-recovery_timestamp_ns=1781576487025224325
