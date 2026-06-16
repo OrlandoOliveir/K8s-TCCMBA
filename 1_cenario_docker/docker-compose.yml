@@ -8,6 +8,15 @@ services:
       - "8080:80"
     depends_on:
       - db
+    mem_limit: 2g
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2g
+        reservations:
+          cpus: '2'
+          memory: 2g
     environment:
       DB_HOST: db
       DB_USER: appuser
@@ -30,6 +39,15 @@ services:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - default
+    mem_limit: 2g
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2g
+        reservations:
+          cpus: '2'
+          memory: 2g
 
 volumes:
   db_data:
