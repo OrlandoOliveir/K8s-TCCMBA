@@ -17,3 +17,5 @@ fi
 popd >/dev/null
 
 echo "Load test complete. Results in $RESULTS_DIR"
+
+"$ROOT/gerar-comparativo.sh"
