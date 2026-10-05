@@ -1,12 +1,16 @@
 # TCC — Docker vs Kubernetes: Análise Comparativa de Desempenho e Resiliência
 
-Trabalho de Conclusão de Curso que compara, de forma científica e reproduzível, o comportamento de uma mesma aplicação web executada em dois ambientes distintos: **Docker Compose** (sem orquestração) e **Kubernetes** (via kind).
+Trabalho de Conclusão de Curso (MBA em Engenharia de Software) que compara, de forma reproduzível, o comportamento de uma mesma aplicação web executada em dois ambientes distintos: **Docker Compose** (sem orquestração) e **Kubernetes** (via kind).
+
+**Título do trabalho:** Kubernetes como plataforma padrão para orquestração de aplicações: impactos na arquitetura de software moderna.
 
 ---
 
 ## Visão geral
 
 A aplicação é uma API REST em PHP/Nginx conectada a um banco MySQL. O mesmo código-fonte é utilizado nos dois cenários; o que muda é exclusivamente a camada de infraestrutura. Testes de carga automatizados com k6 medem desempenho e resiliência a falhas em cada ambiente.
+
+Para manter a paridade entre os cenários, o Deployment da aplicação no Kubernetes utiliza **uma única réplica**, equivalente ao único container da aplicação no cenário Docker. Assim, a comparação avalia o efeito da orquestração, e não o da redundância de instâncias.
 
 ---
 
@@ -39,19 +43,20 @@ A aplicação é uma API REST em PHP/Nginx conectada a um banco MySQL. O mesmo c
 │       ├── apply-kind.sh
 │       └── delete-kind.sh
 │
-└── load-test/                 # Testes de carga
+└── load-test/                 # Testes de carga e falha
     ├── docker-cenario/
-    │   ├── k6-script.js       # Script k6
-    │   ├── fault-test.sh      # Teste de falha + recuperação
-    │   └── run-test.sh        # Orquestrador: executa fault + carga
+    │   ├── k6-script.js       # Script k6 de carga normal
+    │   ├── fault-test.sh      # Teste de falha + monitoramento
+    │   └── run-test.sh        # Executa falha, carga e gera o comparativo
     ├── k8s-cenario/
     │   ├── k6-script.js
     │   ├── fault-test.sh
     │   └── run-test.sh
+    ├── gerar-comparativo.sh   # Gera o comparativo.md a partir dos resultados
     ├── results/               # Gerado após execução (não versionado)
     │   ├── docker/
     │   └── k8s/
-    └── comparativo.md         # Tabela de resultados preenchida
+    └── comparativo.md         # Tabela de resultados gerada automaticamente
 ```
 
 ---
@@ -68,10 +73,31 @@ A aplicação é uma API REST em PHP/Nginx conectada a um banco MySQL. O mesmo c
 
 ### Stack
 
-- **Runtime:** PHP-FPM + Nginx
-- **Banco de dados:** MySQL 8.0
-- **Infraestrutura — Cenário 1:** Docker Compose
+| Componente | Versão |
+|---|---|
+| PHP / PHP-FPM | 8.0 (Alpine) |
+| Nginx | 1.25 |
+| MySQL | 8.0 |
+| k6 | v2.0.0 |
+
+- **Infraestrutura — Cenário 1:** Docker Compose, aplicação em `localhost:8080`
 - **Infraestrutura — Cenário 2:** Kubernetes (kind), namespace `tcc`, NodePort 30080
+
+---
+
+## Ambiente experimental
+
+Os dois cenários foram executados com os mesmos recursos de máquina:
+
+| Recurso | Cenário 1 (Docker) | Cenário 2 (Kubernetes) |
+|---|---|---|
+| vCPUs | 2 | 2 |
+| Memória RAM | 4 GB | 4 GB |
+| Armazenamento | 20 GB | 20 GB |
+| Sistema operacional | Ubuntu 26.04 LTS | Ubuntu 26.04 LTS |
+| Docker | v29.5.3 | v29.5.3 |
+| Kubernetes | — | v1.36.2 |
+| kind | — | v0.32.0 |
 
 ---
 
@@ -83,22 +109,13 @@ A aplicação é uma API REST em PHP/Nginx conectada a um banco MySQL. O mesmo c
 | kind | — | Obrigatório |
 | kubectl | — | Obrigatório |
 | k6 | Obrigatório | Obrigatório |
-| python3 | Obrigatório | Obrigatório |
-| curl, bash | Obrigatório | Obrigatório |
+| jq | Obrigatório | Obrigatório |
+| python3 | — | Obrigatório |
+| curl, awk, bash | Obrigatório | Obrigatório |
 
 ---
 
 ## Cenário 1 — Docker Compose
-
-### Especificações do ambiente
-
-| Recurso | Valor |
-|---|---|
-| vCPUs | 2 |
-| Memória RAM | 4 GB |
-| Armazenamento | 20 GB |
-| Sistema operacional | Ubuntu 24.04 LTS |
-| Docker | v29.5.3 |
 
 ### Subir a aplicação
 
@@ -126,18 +143,6 @@ docker compose down
 
 ## Cenário 2 — Kubernetes (kind)
 
-### Especificações do ambiente
-
-| Recurso | Valor |
-|---|---|
-| vCPUs | 2 |
-| Memória RAM | 4 GB |
-| Armazenamento | 20 GB |
-| Sistema operacional | Ubuntu 24.04 LTS |
-| kind | local cluster |
-| Namespace | `tcc` |
-| NodePort | 30080 |
-
 ### 1. Criar o cluster kind
 
 ```bash
@@ -157,7 +162,7 @@ cd 2_cenario_k8s/k8s
 ./apply-kind.sh
 ```
 
-O script aplica todos os manifestos e aguarda o rollout dos deployments (`mysql` e `tcc-app`).
+O script aplica o namespace, o ConfigMap de inicialização do banco e os Deployments/Services do MySQL e da aplicação, e aguarda o rollout de `mysql` e `tcc-app`.
 
 ### 4. Verificar
 
@@ -165,6 +170,8 @@ O script aplica todos os manifestos e aguarda o rollout dos deployments (`mysql`
 curl http://localhost:30080/health
 curl http://localhost:30080/clients
 ```
+
+> Se a aplicação não responder em `localhost:30080`, os scripts de teste tentam automaticamente o IP interno do nó do kind.
 
 ### Remover os recursos
 
@@ -174,41 +181,41 @@ curl http://localhost:30080/clients
 
 ---
 
-## Testes de carga
+## Testes
 
-Os testes utilizam [k6](https://k6.io) e são compostos por dois scripts executados em sequência pelo `run-test.sh` de cada cenário:
+Os testes utilizam [k6](https://k6.io). Em cada cenário, o `run-test.sh` executa, em sequência, o teste de falha, o teste de carga normal e, por fim, o `gerar-comparativo.sh`.
 
 ### Teste de carga normal (`k6-script.js`)
 
-Simula um ramp-up progressivo de usuários virtuais (VUs):
+Simula um aumento progressivo de usuários virtuais (VUs) contra o endpoint `/clients`:
 
 | Fase | Duração | VUs |
 |---|---|---|
-| Rampa de subida | 30s | 0 → 20 |
-| Carga sustentada | 60s | 20 → 50 |
-| Pico | 120s | 50 → 100 |
-| Rampa de descida | 30s | 100 → 0 |
+| Rampa de subida | 30 s | 0 → 20 |
+| Carga sustentada | 60 s | 20 → 50 |
+| Pico | 120 s | 50 → 100 |
+| Rampa de descida | 30 s | 100 → 0 |
 
-**Thresholds:** P95 < 1000ms, taxa de erro < 1%.
+**Thresholds:** P95 < 1000 ms, taxa de erro < 1%.
 
-### Teste de falha e recuperação (`fault-test.sh`)
+### Teste de falha (`fault-test.sh`)
 
-Executa 30 VUs por 120s e, após 10s de aquecimento, simula uma falha:
+Executa 30 VUs por 120 s e, após 10 s de aquecimento, provoca uma falha:
 
-- **Docker:** `docker compose down` seguido de `docker compose up -d`
-- **K8s:** `kubectl delete pod -l app=tcc-app -n tcc --grace-period=0 --force`
+- **Docker:** `docker compose stop app` seguido de `docker compose start app` (reinício por comando externo)
+- **Kubernetes:** `kubectl delete pod -l app=tcc-app -n tcc --grace-period=0 --force` (recriação automática pelo Deployment)
 
-Monitora o endpoint `/health` a cada 200ms para medir o tempo de indisponibilidade e de recuperação.
+Durante todo o teste, o endpoint `/health` é monitorado a cada 200 ms, e cada resposta é registrada com timestamp e código HTTP no `health-monitor.log`.
 
-### Métricas capturadas
+### Como as métricas são calculadas
 
-| Métrica | Arquivo |
+| Métrica | Origem |
 |---|---|
-| Tempo médio de resposta, P95, req/s, taxa de erro | `load-test-summary.json` |
-| Métricas detalhadas por requisição | `load-test.json` |
-| Tempo de recuperação e indisponibilidade (falha) | `fault-recovery.txt` |
-| Log de status HTTP durante a falha | `health-monitor.log` |
-| Resumo k6 do teste com falha | `fault-load-test-summary.json` |
+| Tempo médio de resposta, P95, req/s, taxa de erro sob carga | `load-test-summary.json` (teste de carga normal) |
+| Taxa de erro durante a falha | `fault-load-test-summary.json` (teste de falha) |
+| Tempo de recuperação e de indisponibilidade | `health-monitor.log`: intervalo entre a primeira resposta inválida e a primeira resposta válida seguinte (resolução de 200 ms) |
+
+Como o tempo de recuperação e o de indisponibilidade são calculados pelo mesmo intervalo observado no monitoramento, as duas métricas apresentam o mesmo valor.
 
 ### Executar os testes
 
@@ -226,35 +233,51 @@ cd load-test/k8s-cenario
 ./run-test.sh
 ```
 
-Os resultados são gravados automaticamente em `load-test/results/docker/` e `load-test/results/k8s/`.
+Os resultados são gravados em `load-test/results/docker/` e `load-test/results/k8s/`, e o `load-test/comparativo.md` é atualizado ao final. Para regenerar o comparativo a partir de resultados já existentes, sem executar os testes novamente:
+
+```bash
+cd load-test
+./gerar-comparativo.sh
+```
 
 ---
 
 ## Resultados obtidos
 
-### Carga normal (ramp 0 → 100 VUs)
-
 | Métrica | Docker | Kubernetes |
 |---|---:|---:|
-| Tempo médio de resposta | 3,14 ms | 3,66 ms |
-| P95 do tempo de resposta | 5,93 ms | 5,97 ms |
-| Requisições por segundo | 53,22 req/s | 53,28 req/s |
-| Taxa de erro | 0% | 0% |
+| Tempo médio de resposta | 5,04 ms | 4,54 ms |
+| P95 do tempo de resposta | 7,40 ms | 6,11 ms |
+| Requisições por segundo | 53,25 req/s | 53,30 req/s |
+| Taxa de erro sob carga | 0% | 0% |
+| Taxa de erro durante a falha | 0,90% | 0% |
+| Tempo de recuperação após falha | 1,9 s | 1,08 s |
+| Tempo de indisponibilidade | 1,9 s | 1,08 s |
 
-### Falha simulada (30 VUs constantes)
+> Valores gerados em [`load-test/comparativo.md`](load-test/comparativo.md).
 
-| Métrica | Docker | Kubernetes |
+### Esforço de configuração e operação
+
+| Critério | Docker | Kubernetes |
 |---|---:|---:|
-| Taxa de erro sob carga | 2,5% | 0% |
-| P95 do tempo de resposta | 9,71 ms | 11,58 ms |
-| Tempo de recuperação após falha | 825 ms | ~1 ms |
-| Tempo de indisponibilidade | 825 ms | ~1 ms |
-
-> Tabela completa em [`load-test/comparativo.md`](load-test/comparativo.md).
+| Arquivos declarativos | 1 | 5 |
+| Linhas declarativas (LOC) | 49 | 169 (139 sem SQL) |
+| Objetos/recursos declarados | 3 | 8 |
+| Comandos para provisionar o ambiente | 1 | 3 |
+| Intervenções manuais para recuperar após falha | 1 | 0 |
+| Tempo de provisionamento (média de 5 execuções) | 16,28 s | 22,68 s |
 
 ---
 
 ## Observações sobre os resultados
 
-- **Carga normal:** os dois ambientes apresentam desempenho equivalente. O Docker tem latência média ~0,5ms menor, reflexo do menor overhead de rede em relação à camada de kube-proxy do Kubernetes.
-- **Resiliência a falhas:** o Kubernetes manteve zero erros durante a deleção forçada do pod, pois redirecionou o tráfego imediatamente para as réplicas restantes. O Docker Compose registrou 2,5% de falhas e ficou indisponível por ~825ms enquanto o container reiniciava.
+- **Carga normal:** os dois ambientes apresentaram desempenho praticamente equivalente, com diferenças inferiores a 1 ms no tempo médio e no P95.
+- **Resiliência a falhas:** no Docker, o serviço ficou cerca de 1,9 s indisponível, 0,90% das requisições falharam e a recuperação dependeu de um comando externo. No Kubernetes, a indisponibilidade observada foi de cerca de 1,1 s (aproximadamente 43% menor), nenhuma requisição do k6 falhou e o Pod foi recriado automaticamente pelo Deployment.
+- **Ausência de erros no Kubernetes:** apesar da breve indisponibilidade registrada pelo monitoramento, o k6 não registrou erros, o que sugere que parte das requisições foi retardada durante a recriação do Pod, em vez de rejeitada.
+- **Configuração:** o Kubernetes exigiu mais arquivos, linhas e etapas de provisionamento, mas reduziu o esforço de operação ao assumir a recuperação da aplicação.
+
+### Limitações
+
+- O experimento foi executado em ambiente local controlado e não representa integralmente ambientes corporativos de produção.
+- O Deployment foi configurado com uma única réplica, para manter a paridade com o cenário Docker. Testes com múltiplas réplicas e verificações de prontidão (`readinessProbe`) podem avaliar se a indisponibilidade no Kubernetes pode ser eliminada.
+- A resolução do monitoramento é de 200 ms, o que limita a precisão dos tempos de recuperação e de indisponibilidade.
