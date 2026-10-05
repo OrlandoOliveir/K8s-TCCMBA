@@ -7,7 +7,9 @@
 | Requisições por segundo | 53.25 | 53.30 |
 | Taxa de erro sob carga (%) | 0.00 | 0.00 |
 | Taxa de erro durante a falha (%) | 0.90 | 0.00 |
-| Tempo de recuperação após falha (s) | 0.718659 | 0.00376602 |
-| Tempo de indisponibilidade (ms) | 718 | 3 |
+| Tempo de recuperação após falha (ms) | 1900 | 1082 |
+| Tempo de indisponibilidade (ms) | 1900 | 1082 |
 
-_Gerado em 2026-10-04 22:15:11 por `gerar-comparativo.sh`._
+_Tempo de recuperação e de indisponibilidade calculados a partir do `health-monitor.log` (amostragem a cada 200 ms): intervalo entre a primeira resposta inválida e a primeira resposta válida seguinte._
+
+_Gerado em 2026-10-04 23:08:23 por `gerar-comparativo.sh`._

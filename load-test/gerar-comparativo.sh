@@ -34,6 +34,23 @@ fault_value() {
   echo "-"
 }
 
+# Calcula a indisponibilidade observada a partir do health-monitor.log:
+# intervalo entre a primeira resposta diferente de 200 e a primeira resposta 200
+# seguinte (amostragem do monitor: 200 ms). Imprime "0" se nenhuma interrupção
+# foi observada e "-" se o log não existir.
+observed_downtime_ms() {
+  local log=$1
+  if [[ -f "$log" ]]; then
+    awk -F, 'NR>1 {
+      if ($2 != "200" && !down) { down = 1; start = $1 }
+      else if ($2 == "200" && down) { printf "%.0f", ($1 - start) / 1e6; found = 1; exit }
+    }
+    END { if (!down) printf "0"; else if (!found) printf "-" }' "$log"
+  else
+    printf -- "-"
+  fi
+}
+
 row() {
   local label=$1 docker=$2 k8s=$3
   echo "| $label | $docker | $k8s |"
@@ -62,12 +79,14 @@ K="$ROOT/results/k8s"
   row "Taxa de erro durante a falha (%)" \
     "$(k6_metric "$D/fault-load-test-summary.json" '.metrics.http_req_failed.value * 100' '%.2f')" \
     "$(k6_metric "$K/fault-load-test-summary.json" '.metrics.http_req_failed.value * 100' '%.2f')"
-  row "Tempo de recuperação após falha (s)" \
-    "$(fault_value "$D/fault-recovery.txt" recovery_seconds)" \
-    "$(fault_value "$K/fault-recovery.txt" recovery_seconds)"
+  row "Tempo de recuperação após falha (ms)" \
+    "$(observed_downtime_ms "$D/health-monitor.log")" \
+    "$(observed_downtime_ms "$K/health-monitor.log")"
   row "Tempo de indisponibilidade (ms)" \
-    "$(fault_value "$D/fault-recovery.txt" downtime_milliseconds)" \
-    "$(fault_value "$K/fault-recovery.txt" downtime_milliseconds)"
+    "$(observed_downtime_ms "$D/health-monitor.log")" \
+    "$(observed_downtime_ms "$K/health-monitor.log")"
+  echo
+  echo "_Tempo de recuperação e de indisponibilidade calculados a partir do \`health-monitor.log\` (amostragem a cada 200 ms): intervalo entre a primeira resposta inválida e a primeira resposta válida seguinte._"
   echo
   echo "_Gerado em $(date '+%Y-%m-%d %H:%M:%S') por \`gerar-comparativo.sh\`._"
 } > "$OUT"
